@@ -765,7 +765,9 @@ elif page == "管理者":
     st.subheader("貸出状況の一括更新（管理者）")
     labels = [f"{r['名称']} / {r['型式']} / {r['識別番号']} 現在:{r['貸出状況']}" for _, r in df_instr.iterrows()]
     values = df_instr['識別番号'].astype(str).tolist()
-    pick = st.multiselect("対象を選択", options=values, format_func=lambda v: labels[values.index(str(v))], key="bulk_pick")
+    label_map = dict(zip(values, labels))
+   
+    pick = st.multiselect("対象を選択", options=values, format_func=lambda v: label_map.get(v, str(v)), key="bulk_pick")
 
     col_bs1, col_bs2 = st.columns([1,1])
     with col_bs1:
