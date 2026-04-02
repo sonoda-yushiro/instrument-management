@@ -119,6 +119,8 @@ def load_data():
         df_tc_usage = pd.DataFrame(columns=["使用日","所属","氏名","用途","使用数"])
     if "使用日" in df_tc_usage.columns:
         df_tc_usage["使用日"] = pd.to_datetime(df_tc_usage["使用日"], errors="coerce")
+    
+    return df_instr, df_tc_usage, df_tc_inv, df_log
 
    
 # --- 熱電対 在庫 ---
