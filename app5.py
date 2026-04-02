@@ -49,6 +49,44 @@ def load_config():
 
 @st.cache_data(ttl=60)
 def load_data():
+    
+    df_instr = pd.DataFrame()
+    df_tc_usage = pd.DataFrame()
+    df_tc_inv = pd.DataFrame()
+    df_log = pd.DataFrame()
+
+    try:
+        # 機材マスタ
+        df_instr = pd.read_excel(
+            DATA_PATH,
+            sheet_name=SHEET_INSTR,
+            engine="openpyxl"
+        )
+
+        # 熱電対 使用履歴
+        df_tc_usage = pd.read_excel(
+            DATA_PATH,
+            sheet_name=SHEET_TC_USAGE,
+            engine="openpyxl"
+        )
+
+        # 熱電対 在庫
+        df_tc_inv = pd.read_excel(
+            DATA_PATH,
+            sheet_name=SHEET_TC_INV,
+            engine="openpyxl"
+        )
+
+        # 操作ログ
+        df_log = pd.read_excel(
+            DATA_PATH,
+            sheet_name=SHEET_LOG,
+            engine="openpyxl"
+        )
+
+    except Exception as e:
+        st.error(f"データ読み込みエラー: {e}")
+
     df_instr = pd.read_excel(DATA_PATH, sheet_name=SHEET_INSTR, engine="openpyxl")
 
     # Excel由来の不要列（Unnamed:* / 空ヘッダ）を除去
