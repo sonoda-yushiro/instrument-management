@@ -34,6 +34,19 @@ def _round_sig(x, sig=6):
         return 0.0
     return float(f"{x:.{sig}g}")
 
+
+SHEET_CONFIG = "設定"
+
+def load_config():
+    try:
+        df = pd.read_excel(DATA_PATH, sheet_name=SHEET_CONFIG)
+    except Exception:
+        df = pd.DataFrame({
+            "key": ["warning_days"],
+            "value": [7]
+        })
+    return dict(zip(df["key"], df["value"]))
+
 @st.cache_data(ttl=60)
 def load_data():
     df_instr = pd.read_excel(DATA_PATH, sheet_name=SHEET_INSTR, engine="openpyxl")
@@ -63,7 +76,7 @@ def load_data():
         )
 
     needed_instr = [
-        "名称","型式","識別番号","貸出状況","貸出日","返却予定日",
+        "名称","型式","識別番号","管理番号","貸出状況","貸出日","返却予定日",
         "所属","氏名","使用場所","使用用途","保管場所","備考"
     ] + NEW_FIELDS
     for c in needed_instr:
@@ -107,18 +120,16 @@ def load_data():
     if "使用日" in df_tc_usage.columns:
         df_tc_usage["使用日"] = pd.to_datetime(df_tc_usage["使用日"], errors="coerce")
 
-    # --- 熱電対 在庫 ---
-    try:
-        df_tc_inv = pd.read_excel(DATA_PATH, sheet_name=SHEET_TC_INV, engine="openpyxl")
-    except Exception:
-        df_tc_inv = pd.DataFrame(columns=["種別","在庫","備考"])
-    if "在庫" in df_tc_inv.columns:
-        df_tc_inv["在庫"] = pd.to_numeric(df_tc_inv["在庫"], errors="coerce").fillna(0).astype(int)
+   
+# --- 熱電対 在庫 ---
+try:
+    df_tc_inv = pd.read_excel(DATA_PATH, sheet_name=SHEET_TC_INV, engine="openpyxl")
+except Exception:
+    df_tc_inv = pd.DataFrame(columns=["種別","在庫","備考"])
+if "在庫" in df_tc_inv.columns:
+    df_tc_inv["在庫"] = pd.to_numeric(df_tc_inv["在庫"], errors="coerce").fillna(0).astype(int)
 
-    return df_instr, df_tc_usage, df_tc_inv
-
-
-def save_data(df_instr, df_tc_usage, df_tc_inv):
+def save_data(df_instr, df_tc_usage, df_tc_inv, df_log):
     import pandas as _pd, tempfile as _tempfile, os as _os
     from pathlib import Path as _Path
     import time as _time
@@ -136,6 +147,7 @@ def save_data(df_instr, df_tc_usage, df_tc_inv):
                     df_instr.to_excel(w, sheet_name=SHEET_INSTR, index=False)
                     df_tc_usage.to_excel(w, sheet_name=SHEET_TC_USAGE, index=False)
                     df_tc_inv.to_excel(w, sheet_name=SHEET_TC_INV, index=False)
+                    df_log.to_excel(w, sheet_name=SHEET_LOG, index=False)
             if target.exists():
                 try:
                     _os.replace(tmp_path, target)
@@ -161,6 +173,17 @@ def save_data(df_instr, df_tc_usage, df_tc_inv):
     if last_err is not None:
         raise last_err
 
+SHEET_LOG = "操作ログ"
+
+def append_log(df_log, action, target, user=""):
+    row = {
+        "日時": pd.Timestamp(datetime.now()),
+        "操作": action,
+        "対象": target,
+        "操作者": user
+    }
+    return pd.concat([df_log, pd.DataFrame([row])], ignore_index=True)
+
 
 def status_icon(s):
     if s in ["〇", "○"]: return "✅"
@@ -168,7 +191,7 @@ def status_icon(s):
     return "➖"
 
 # アプリ設定：初期ページを『Dashboard(=貸出状況)』
-st.set_page_config(page_title="計測器管理アプリ v4.4 r4c_r2", layout="wide")
+st.set_page_config(page_title="BASD4_計測器管理表", layout="wide")
 
 # === Sidebar ===
 with st.sidebar:
@@ -207,16 +230,18 @@ with st.sidebar:
                     st.error("管理者コードが違います。")
 
     if 'page' not in st.session_state:
-        st.session_state.page = "Dashboard"
-    page = st.radio("メニュー", ["Dashboard", "計測器一覧", "熱電対 在庫", "熱電対 使用履歴", "管理者"], key="page")
+        st.session_state.page = "返却状況"
+    page = st.radio("メニュー", ["返却状況", "計測器一覧", "熱電対 在庫", "熱電対 使用履歴", "管理者"], key="page")
 
 # === Load data ===
-df_instr, df_tc_usage, df_tc_inv = load_data()
+df_instr, df_tc_usage, df_tc_inv,df_log = load_data()
 
-# === Dashboard（貸出状況） ===
-if page == "Dashboard":
+# === 返却状況 ===
+if page == "返却状況":
     st.header("貸出状況")
     today = pd.Timestamp(datetime.now().date())
+    config = load_config()
+    warning_days = int(config.get("warning_days", 7))
     df_out = df_instr[df_instr["貸出状況"].isin(["×","✕"])]
     overdue = df_out[df_out["返却予定日"].notna() & (df_out["返却予定日"] < today)]
     due_today = df_out[df_out["返却予定日"].dt.date == today.date()]
@@ -229,7 +254,7 @@ if page == "Dashboard":
     c4.metric("7日以内期限", len(due_7))
 
     st.subheader("期限切れ一覧")
-    st.dataframe(overdue[["名称","型式","識別番号","氏名","所属","返却予定日","使用用途","使用場所"]], use_container_width=True)
+    st.dataframe(overdue[["名称","型式","識別番号","管理番号","氏名","所属","返却予定日","使用用途","使用場所"]], use_container_width=True)
 
 # === 計測器一覧 ===
 elif page == "計測器一覧":
@@ -266,7 +291,7 @@ elif page == "計測器一覧":
 
     st.dataframe(
         dfv.assign(ステータス=dfv["貸出状況"].map(status_icon))[[
-            "ステータス","名称","型式","識別番号","メーカー","購入日","校正期限","氏名","所属",
+            "ステータス","名称","型式","識別番号","管理番号""メーカー","購入日","校正期限","氏名","所属",
             "貸出日","返却予定日","使用用途","使用場所","保管場所","備考"
         ]],
         use_container_width=True
@@ -312,7 +337,7 @@ elif page == "計測器一覧":
                     df_instr.at[idx, "使用用途"] = 使用用途
                     df_instr.at[idx, "貸出日"] = pd.Timestamp(datetime.now())
                     df_instr.at[idx, "返却予定日"] = pd.Timestamp(返却予定日)
-                    save_data(df_instr, df_tc_usage, df_tc_inv)
+                    save_data(df_instr, df_tc_usage, df_tc_inv, df_log)
                     st.success("貸出を登録しました。")
                     st.cache_data.clear()
         with c2:
@@ -324,7 +349,7 @@ elif page == "計測器一覧":
                     df_instr.at[idx, c] = ""
                 df_instr.at[idx, "貸出日"] = pd.NaT
                 df_instr.at[idx, "返却予定日"] = pd.NaT
-                save_data(df_instr, df_tc_usage, df_tc_inv)
+                save_data(df_instr, df_tc_usage, df_tc_inv, df_log)
                 st.success("返却を処理しました。")
                 st.cache_data.clear()
 
@@ -346,7 +371,7 @@ elif page == "熱電対 在庫":
         key="inv_editor"
     )
     if st.session_state.is_admin and st.button("在庫表を保存"):
-        save_data(df_instr, df_tc_usage, edited)
+        save_data(df_instr, df_tc_usage, df_tc_inv, df_log, edited)
         st.success("在庫表（備考含む）を保存しました。")
         st.cache_data.clear()
 
@@ -386,7 +411,7 @@ elif page == "熱電対 在庫":
                     note = str(df_inv.at[idx, "備考"]).strip()
                     df_inv.at[idx, "備考"] = (note + "" if note else "") + f"[出庫] {datetime.now():%Y-%m-%d} {追加メモ}"
                 st.success(f"{種別} を {数量} 本 出庫しました。")
-            save_data(df_instr, df_tc_usage, df_inv)
+            save_data(df_instr, df_tc_usage, df_inv, df_log)
             st.cache_data.clear()
 
 # === 熱電対 使用履歴 ===
@@ -476,7 +501,7 @@ elif page == "管理者":
                     cancel = cc2.button("やめる")
                     if do_del:
                         df_instr = df_instr[df_instr['識別番号'].astype(str) != str(row['識別番号'])].reset_index(drop=True)
-                        save_data(df_instr, df_tc_usage, df_tc_inv)
+                        save_data(df_instr, df_tc_usage, df_tc_inv, df_log)
                         st.success("削除しました。")
                         st.cache_data.clear()
                     elif cancel:
@@ -742,7 +767,7 @@ elif page == "管理者":
                     df_new.at[idx, '氏名'] = 入力氏名
                     df_new.at[idx, '貸出日'] = pd.Timestamp(datetime.now())
                     df_new.at[idx, '返却予定日'] = pd.Timestamp(入力返却予定日)
-            save_data(df_new, df_tc_usage, df_tc_inv)
+            save_data(df_new, df_tc_usage, df_tc_inv, df_log)
             st.success(f"{len(pick)} 件のレコードを更新しました。")
             st.cache_data.clear()
 
@@ -762,7 +787,7 @@ elif page == "管理者":
         key="inv_bulk_editor"
     )
     if st.button("在庫テーブルを保存（管理者）", key="inv_bulk_save"):
-        save_data(df_instr, df_tc_usage, edited_inv)
+        save_data(df_instr, df_tc_usage, edited_inv, df_log)
         st.success("在庫テーブルを保存しました。")
         st.cache_data.clear()
 
@@ -790,6 +815,6 @@ elif page == "管理者":
                 st.error("必須列は削除できません: " + ", ".join(protected))
             else:
                 df_new = df_instr.drop(columns=cols_to_drop, errors='ignore')
-                save_data(df_new, df_tc_usage, df_tc_inv)
+                save_data(df_new, df_tc_usage, df_tc_inv, df_log)
                 st.success("列を削除して保存しました: " + ", ".join(cols_to_drop))
                 st.cache_data.clear()
